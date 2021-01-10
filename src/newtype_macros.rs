@@ -34,7 +34,7 @@ macro_rules! newtype_traits (($newtype:ident, $len:expr) => (
 
     #[cfg(feature = "serde")]
     impl ::serde::Serialize for $newtype {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
             where S: ::serde::Serializer
         {
             serializer.serialize_bytes(&self.as_ref())
@@ -43,7 +43,7 @@ macro_rules! newtype_traits (($newtype:ident, $len:expr) => (
 
     #[cfg(feature = "serde")]
     impl<'de> ::serde::Deserialize<'de> for $newtype {
-        fn deserialize<D>(deserializer: D) -> Result<$newtype, D::Error>
+        fn deserialize<D>(deserializer: D) -> core::result::Result<$newtype, D::Error>
             where D: ::serde::Deserializer<'de>
         {
             struct NewtypeVisitor;
@@ -52,7 +52,7 @@ macro_rules! newtype_traits (($newtype:ident, $len:expr) => (
                 fn expecting(&self, formatter: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
                     write!(formatter, stringify!($newtype))
                 }
-                fn visit_seq<V>(self, mut visitor: V) -> Result<Self::Value, V::Error>
+                fn visit_seq<V>(self, mut visitor: V) -> core::result::Result<Self::Value, V::Error>
                     where V: ::serde::de::SeqAccess<'de>
                 {
                     let mut res = $newtype([0; $len]);
@@ -63,7 +63,7 @@ macro_rules! newtype_traits (($newtype:ident, $len:expr) => (
                     }
                     Ok(res)
                 }
-                fn visit_bytes<E>(self, v: &[u8]) -> Result<Self::Value, E>
+                fn visit_bytes<E>(self, v: &[u8]) -> core::result::Result<Self::Value, E>
                     where E: ::serde::de::Error
                 {
                     $newtype::from_slice(v).ok_or(::serde::de::Error::invalid_length(v.len(), &self))

@@ -5,6 +5,7 @@
 //! This function is conjectured to meet the standard notions of privacy and
 //! authenticity.
 
+use crate::error::{SodiumError, Result};
 use crypto::nonce::gen_random_nonce;
 use ffi;
 #[cfg(not(feature = "std"))]
@@ -99,11 +100,17 @@ pub fn seal_detached(m: &mut [u8], n: &Nonce, k: &Key) -> Tag {
 }
 
 /// `open()` verifies and decrypts a ciphertext `c` using a secret key `k` and a nonce `n`.
-/// It returns a plaintext `Ok(m)`.
-/// If the ciphertext fails verification, `open()` returns `Err(())`.
-pub fn open(c: &[u8], n: &Nonce, k: &Key) -> Result<Vec<u8>, ()> {
+/// On success, it returns a plaintext `Ok(m)`.
+///
+/// If the ciphertext fails verification, `open()` returns
+/// [`SodiumError::CiphertextFailedVerification`].
+///
+/// This function expects a "combined" ciphertext, which is the tag prepended to the actual
+/// ciphertext. If the provided ciphertext is too short, `open()` returns
+/// [`SodiumError::CiphertextTooShort`].
+pub fn open(c: &[u8], n: &Nonce, k: &Key) -> Result<Vec<u8>> {
     if c.len() < MACBYTES {
-        return Err(());
+        return Err(SodiumError::CiphertextTooShort);
     }
     let mlen = c.len() - MACBYTES;
     let mut m = Vec::with_capacity(mlen);
@@ -119,16 +126,18 @@ pub fn open(c: &[u8], n: &Nonce, k: &Key) -> Result<Vec<u8>, ()> {
             m.set_len(mlen);
             Ok(m)
         } else {
-            Err(())
+            Err(SodiumError::CiphertextFailedVerification)
         }
     }
 }
 
 /// `open_detached()` verifies and decrypts a ciphertext `c` and and authentication tag `tag`,
 /// using a secret key `k` and a nonce `n`. `c` is decrypted in place, so if this function is
-/// successful it will contain the plaintext. If the ciphertext fails verification,
-/// `open_detached()` returns `Err(())`, and the ciphertext is not modified.
-pub fn open_detached(c: &mut [u8], tag: &Tag, n: &Nonce, k: &Key) -> Result<(), ()> {
+/// successful it will contain the plaintext.
+///
+/// If the ciphertext fails verification, `open_detached()` returns
+/// [`SodiumError::CiphertextFailedVerification`], and the ciphertext is not modified.
+pub fn open_detached(c: &mut [u8], tag: &Tag, n: &Nonce, k: &Key) -> Result<()> {
     let ret = unsafe {
         ffi::crypto_secretbox_open_detached(
             c.as_mut_ptr(),
@@ -142,7 +151,7 @@ pub fn open_detached(c: &mut [u8], tag: &Tag, n: &Nonce, k: &Key) -> Result<(), 
     if ret == 0 {
         Ok(())
     } else {
-        Err(())
+        Err(SodiumError::CiphertextFailedVerification)
     }
 }
 
@@ -174,10 +183,16 @@ mod test {
             for i in 0..c.len() {
                 c[i] ^= 0x20;
                 // Test the combined mode.
-                assert_eq!(Err(()), open(&c, &n, &k));
+                assert_eq!(
+                    Err(SodiumError::CiphertextFailedVerification),
+                    open(&c, &n, &k)
+                );
                 // Test the detached mode.
                 let tag = Tag::from_slice(&c[..MACBYTES]).unwrap();
-                assert_eq!(Err(()), open_detached(&mut c[MACBYTES..], &tag, &n, &k));
+                assert_eq!(
+                    Err(SodiumError::CiphertextFailedVerification),
+                    open_detached(&mut c[MACBYTES..], &tag, &n, &k)
+                );
                 c[i] ^= 0x20;
             }
         }
@@ -238,12 +253,18 @@ mod test {
             let mut tag = seal_detached(&mut m, &n, &k);
             for j in 0..m.len() {
                 m[j] ^= 0x20;
-                assert_eq!(Err(()), open_detached(&mut m, &tag, &n, &k));
+                assert_eq!(
+                    Err(SodiumError::CiphertextFailedVerification),
+                    open_detached(&mut m, &tag, &n, &k)
+                );
                 m[j] ^= 0x20;
             }
             for j in 0..tag.0.len() {
                 tag.0[j] ^= 0x20;
-                assert_eq!(Err(()), open_detached(&mut m, &tag, &n, &k));
+                assert_eq!(
+                    Err(SodiumError::CiphertextFailedVerification),
+                    open_detached(&mut m, &tag, &n, &k)
+                );
                 tag.0[j] ^= 0x20;
             }
         }
