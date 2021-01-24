@@ -10,6 +10,8 @@ use ffi;
 #[cfg(not(feature = "std"))]
 use prelude::*;
 
+use crate::error::{Result, SodiumError};
+
 /// Number of bytes in a `Seed`.
 pub const SEEDBYTES: usize = ffi::crypto_box_curve25519xsalsa20poly1305_SEEDBYTES as usize;
 
@@ -162,10 +164,16 @@ pub fn seal_detached(m: &mut [u8], n: &Nonce, pk: &PublicKey, sk: &SecretKey) ->
 
 /// `open()` verifies and decrypts a ciphertext `c` using the receiver's secret key `sk`,
 /// the senders public key `pk`, and a nonce `n`. It returns a plaintext `Ok(m)`.
-/// If the ciphertext fails verification, `open()` returns `Err(())`.
-pub fn open(c: &[u8], n: &Nonce, pk: &PublicKey, sk: &SecretKey) -> Result<Vec<u8>, ()> {
+///
+/// If the ciphertext fails verification, `open()` returns
+/// [`SodiumError::CiphertextFailedVerification`].
+///
+/// This function expects a "combined" ciphertext, which is the tag prepended to the actual
+/// ciphertext. If the provided ciphertext is too short, `open()` returns
+/// [`SodiumError::CiphertextTooShort`].
+pub fn open(c: &[u8], n: &Nonce, pk: &PublicKey, sk: &SecretKey) -> Result<Vec<u8>> {
     if c.len() < MACBYTES {
-        return Err(());
+        return Err(SodiumError::CiphertextTooShort);
     }
     let mlen = c.len() - MACBYTES;
     let mut m = Vec::with_capacity(mlen);
@@ -183,21 +191,23 @@ pub fn open(c: &[u8], n: &Nonce, pk: &PublicKey, sk: &SecretKey) -> Result<Vec<u
     if ret == 0 {
         Ok(m)
     } else {
-        Err(())
+        Err(SodiumError::CiphertextFailedVerification)
     }
 }
 
 /// `open_detached()` verifies and decrypts a ciphertext `c` using the receiver's secret key `sk`,
 /// the senders public key `pk`, and a nonce `n`. `c` is decrypted in place, so if this function is
-/// successful it will contain the plaintext. If the ciphertext fails verification,
-/// `open_detached()` returns `Err(())`, and the ciphertext is not modified.
+/// successful it will contain the plaintext.
+///
+/// If the ciphertext fails verification, `open_detached()` returns
+/// [`SodiumError::CiphertextFailedVerification`], and the ciphertext is not modified.
 pub fn open_detached(
     c: &mut [u8],
     mac: &Tag,
     n: &Nonce,
     pk: &PublicKey,
     sk: &SecretKey,
-) -> Result<(), ()> {
+) -> Result<()> {
     let ret = unsafe {
         ffi::crypto_box_open_detached(
             c.as_mut_ptr(),
@@ -212,7 +222,7 @@ pub fn open_detached(
     if ret == 0 {
         Ok(())
     } else {
-        Err(())
+        Err(SodiumError::CiphertextFailedVerification)
     }
 }
 
@@ -278,10 +288,16 @@ pub fn seal_detached_precomputed(m: &mut [u8], n: &Nonce, k: &PrecomputedKey) ->
 
 /// `open_precomputed()` verifies and decrypts a ciphertext `c` using a precomputed
 /// key `k` and a nonce `n`. It returns a plaintext `Ok(m)`.
-/// If the ciphertext fails verification, `open_precomputed()` returns `Err(())`.
-pub fn open_precomputed(c: &[u8], n: &Nonce, k: &PrecomputedKey) -> Result<Vec<u8>, ()> {
+///
+/// This function expects a "combined" ciphertext, which is the tag prepended to the actual
+/// ciphertext. If the provided ciphertext is too short, `open()` returns
+/// [`SodiumError::CiphertextTooShort`].
+///
+/// If the ciphertext fails verification, `open_precomputed()` returns
+/// [`SodiumError::CiphertextFailedVerification`].
+pub fn open_precomputed(c: &[u8], n: &Nonce, k: &PrecomputedKey) -> Result<Vec<u8>> {
     if c.len() < MACBYTES {
-        return Err(());
+        return Err(SodiumError::CiphertextTooShort);
     }
     let mlen = c.len() - MACBYTES;
     let mut m = Vec::with_capacity(mlen);
@@ -297,21 +313,23 @@ pub fn open_precomputed(c: &[u8], n: &Nonce, k: &PrecomputedKey) -> Result<Vec<u
             m.set_len(mlen);
             Ok(m)
         } else {
-            Err(())
+            Err(SodiumError::CiphertextFailedVerification)
         }
     }
 }
 
 /// `open_detached_precomputed()` verifies and decrypts a ciphertext `c` using a precomputed key
 /// `k` and a nonce `n`. `c` is decrypted in place, so if this function is successful it will
-/// contain the plaintext. If the ciphertext fails verification, `open_detached()` returns
-/// `Err(())`, and the ciphertext is not modified.
+/// contain the plaintext.
+///
+/// If the ciphertext fails verification, `open_detached()` returns
+/// [`SodiumError::CiphertextFailedVerification`], and the ciphertext is not modified.
 pub fn open_detached_precomputed(
     c: &mut [u8],
     mac: &Tag,
     n: &Nonce,
     k: &PrecomputedKey,
-) -> Result<(), ()> {
+) -> Result<()> {
     let ret = unsafe {
         ffi::crypto_box_open_detached_afternm(
             c.as_mut_ptr(),
@@ -325,7 +343,7 @@ pub fn open_detached_precomputed(
     if ret == 0 {
         Ok(())
     } else {
-        Err(())
+        Err(SodiumError::CiphertextFailedVerification)
     }
 }
 
@@ -377,7 +395,7 @@ mod test {
             let mut c = seal(&m, &n, &pk1, &sk2);
             for j in 0..c.len() {
                 c[j] ^= 0x20;
-                assert!(Err(()) == open(&c, &n, &pk2, &sk1));
+                assert!(Err(SodiumError::CiphertextFailedVerification) == open(&c, &n, &pk2, &sk1));
                 c[j] ^= 0x20;
             }
         }
@@ -396,7 +414,9 @@ mod test {
             let mut c = seal_precomputed(&m, &n, &k1);
             for j in 0..c.len() {
                 c[j] ^= 0x20;
-                assert!(Err(()) == open_precomputed(&c, &n, &k2));
+                assert!(
+                    Err(SodiumError::CiphertextFailedVerification) == open_precomputed(&c, &n, &k2)
+                );
                 c[j] ^= 0x20;
             }
         }
@@ -433,7 +453,7 @@ mod test {
             let mut c = seal(&m, &n, &pk1, &sk2);
             for j in 0..c.len() {
                 c[j] ^= 0x20;
-                assert!(Err(()) == open(&c, &n, &pk2, &sk1));
+                assert!(Err(SodiumError::CiphertextFailedVerification) == open(&c, &n, &pk2, &sk1));
                 c[j] ^= 0x20;
             }
         }
@@ -498,12 +518,18 @@ mod test {
             let mut tag = seal_detached(&mut m, &n, &pk1, &sk2);
             for j in 0..m.len() {
                 m[j] ^= 0x20;
-                assert_eq!(Err(()), open_detached(&mut m, &tag, &n, &pk2, &sk1));
+                assert_eq!(
+                    Err(SodiumError::CiphertextFailedVerification),
+                    open_detached(&mut m, &tag, &n, &pk2, &sk1)
+                );
                 m[j] ^= 0x20;
             }
             for j in 0..tag.0.len() {
                 tag.0[j] ^= 0x20;
-                assert_eq!(Err(()), open_detached(&mut m, &tag, &n, &pk2, &sk1));
+                assert_eq!(
+                    Err(SodiumError::CiphertextFailedVerification),
+                    open_detached(&mut m, &tag, &n, &pk2, &sk1)
+                );
                 tag.0[j] ^= 0x20;
             }
         }
@@ -597,12 +623,18 @@ mod test {
             let mut tag = seal_detached_precomputed(&mut m, &n, &k1);
             for j in 0..m.len() {
                 m[j] ^= 0x20;
-                assert_eq!(Err(()), open_detached_precomputed(&mut m, &tag, &n, &k2));
+                assert_eq!(
+                    Err(SodiumError::CiphertextFailedVerification),
+                    open_detached_precomputed(&mut m, &tag, &n, &k2)
+                );
                 m[j] ^= 0x20;
             }
             for j in 0..tag.0.len() {
                 tag.0[j] ^= 0x20;
-                assert_eq!(Err(()), open_detached_precomputed(&mut m, &tag, &n, &k2));
+                assert_eq!(
+                    Err(SodiumError::CiphertextFailedVerification),
+                    open_detached_precomputed(&mut m, &tag, &n, &k2)
+                );
                 tag.0[j] ^= 0x20;
             }
         }

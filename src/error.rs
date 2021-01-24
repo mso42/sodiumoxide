@@ -18,7 +18,9 @@ impl core::fmt::Display for SodiumError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         use self::SodiumError::*;
         let msg = match self {
-            CiphertextTooShort => "The ciphertext should include a prepended MAC, but it was too short.",
+            CiphertextTooShort => {
+                "The ciphertext should include a prepended MAC, but it was too short."
+            }
             CiphertextFailedVerification => "The ciphertext failed verification.",
             AesUnsupported => "The runtime does not support AES",
         };

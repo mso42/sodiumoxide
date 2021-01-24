@@ -5,7 +5,7 @@
 //! This function is conjectured to meet the standard notions of privacy and
 //! authenticity.
 
-use crate::error::{SodiumError, Result};
+use crate::error::{Result, SodiumError};
 use crypto::nonce::gen_random_nonce;
 use ffi;
 #[cfg(not(feature = "std"))]
