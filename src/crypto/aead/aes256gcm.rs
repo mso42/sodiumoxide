@@ -83,6 +83,8 @@ mod aes_api {
     #[cfg(not(feature = "std"))]
     use prelude::Vec;
 
+    use crate::error::{SodiumError, Result};
+
     /// The Aes256Gcm struct encapsulates the crypto_aead_aes256gcm_* family of
     /// functions in a way that ensures safe usage of the API at runtime
     /// without incurring a per function call cost.
@@ -96,11 +98,11 @@ mod aes_api {
         /// You must call [init](crate::init) before calling this function. Failure
         /// to do so will result in `Err(_)` being returned even if the runtime
         /// hardware supports AES.
-        pub fn new() -> Result<Self, ()> {
+        pub fn new() -> Result<Self> {
             if unsafe { ffi::crypto_aead_aes256gcm_is_available() } == 1 {
                 Ok(Self)
             } else {
-                Err(())
+                Err(SodiumError::AesUnsupported)
             }
         }
 
@@ -138,15 +140,15 @@ mod aes_api {
             ad: Option<&[u8]>,
             n: &aes_impl::Nonce,
             k: &aes_impl::Key,
-        ) -> Result<Vec<u8>, ()> {
+        ) -> Result<Vec<u8>> {
             aes_impl::open(c, ad, n, k)
         }
 
         /// `open_detached()` verifies and decrypts a ciphertext `c` toghether with optional plaintext data
         /// `ad` and and authentication tag `tag`, using a secret key `k` and a nonce `n`.
         /// `c` is decrypted in place, so if this function is successful it will contain the plaintext.
-        /// If the ciphertext fails verification, `open_detached()` returns `Err(())`,
-        /// and the ciphertext is not modified.
+        /// If the ciphertext fails verification, `open_detached()` returns
+        /// [`SodiumError::CiphertextFailedVerification`], and the ciphertext is not modified.
         pub fn open_detached(
             &self,
             c: &mut [u8],
@@ -154,7 +156,7 @@ mod aes_api {
             t: &aes_impl::Tag,
             n: &aes_impl::Nonce,
             k: &aes_impl::Key,
-        ) -> Result<(), ()> {
+        ) -> Result<()> {
             aes_impl::open_detached(c, ad, t, n, k)
         }
 

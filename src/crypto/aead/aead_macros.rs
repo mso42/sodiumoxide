@@ -12,6 +12,8 @@ use libc::c_ulonglong;
 use std::ptr;
 use randombytes::randombytes_into;
 
+use crate::error::{SodiumError, Result as SodiumResult};
+
 /// Number of bytes in a `Key`.
 pub const KEYBYTES: usize = $keybytes;
 
@@ -103,10 +105,16 @@ pub fn seal_detached(m: &mut [u8], ad: Option<&[u8]>, n: &Nonce, k: &Key) -> Tag
 /// `open()` verifies and decrypts a ciphertext `c` together with optional plaintext data `ad`
 /// using a secret key `k` and a nonce `n`.
 /// It returns a plaintext `Ok(m)`.
-/// If the ciphertext fails verification, `open()` returns `Err(())`.
-pub fn open(c: &[u8], ad: Option<&[u8]>, n: &Nonce, k: &Key) -> Result<Vec<u8>, ()> {
+///
+/// If the ciphertext fails verification, `open()` returns
+/// [`SodiumError::CiphertextFailedVerification`].
+///
+/// This function expects a "combined" ciphertext, which is the tag prepended to the actual
+/// ciphertext. If the provided ciphertext is too short, `open()` returns
+/// [`SodiumError::CiphertextTooShort`].
+pub fn open(c: &[u8], ad: Option<&[u8]>, n: &Nonce, k: &Key) -> SodiumResult<Vec<u8>> {
     if c.len() < TAGBYTES {
-        return Err(());
+        return Err(SodiumError::CiphertextTooShort);
     }
     let (ad_p, ad_len) = ad.map(|ad| (ad.as_ptr(), ad.len() as c_ulonglong)).unwrap_or((ptr::null(), 0));
     let mut m = Vec::with_capacity(c.len() - TAGBYTES);
@@ -126,7 +134,7 @@ pub fn open(c: &[u8], ad: Option<&[u8]>, n: &Nonce, k: &Key) -> Result<Vec<u8>, 
                 k.0.as_ptr()
             );
         if ret != 0 {
-            return Err(());
+            return Err(SodiumError::CiphertextFailedVerification);
         }
         m.set_len(mlen as usize);
     }
@@ -135,9 +143,10 @@ pub fn open(c: &[u8], ad: Option<&[u8]>, n: &Nonce, k: &Key) -> Result<Vec<u8>, 
 /// `open_detached()` verifies and decrypts a ciphertext `c` toghether with optional plaintext data
 /// `ad` and and authentication tag `tag`, using a secret key `k` and a nonce `n`.
 /// `c` is decrypted in place, so if this function is successful it will contain the plaintext.
-/// If the ciphertext fails verification, `open_detached()` returns `Err(())`,
-/// and the ciphertext is not modified.
-pub fn open_detached(c: &mut [u8], ad: Option<&[u8]>, t: &Tag, n: &Nonce, k: &Key) -> Result<(), ()> {
+///
+/// If the ciphertext fails verification, `open_detached()` returns
+/// [`SodiumError::CiphertextFailedVerification`], and the ciphertext is not modified.
+pub fn open_detached(c: &mut [u8], ad: Option<&[u8]>, t: &Tag, n: &Nonce, k: &Key) -> SodiumResult<()> {
     let (ad_p, ad_len) = ad.map(|ad| (ad.as_ptr(), ad.len() as c_ulonglong)).unwrap_or((ptr::null(), 0));
     let ret = unsafe {
         $open_detached_name(
@@ -155,7 +164,7 @@ pub fn open_detached(c: &mut [u8], ad: Option<&[u8]>, t: &Tag, n: &Nonce, k: &Ke
     if ret == 0 {
         Ok(())
     } else {
-        Err(())
+        Err(SodiumError::CiphertextFailedVerification)
     }
 }
 
@@ -197,13 +206,13 @@ mod test_m {
                 c[j] ^= 0x20;
                 let m2 = open(&c, Some(&ad), &n, &k);
                 c[j] ^= 0x20;
-                assert!(m2.is_err());
+                assert_eq!(m2, Err(SodiumError::CiphertextFailedVerification));
             }
             for j in 0..ad.len() {
                 ad[j] ^= 0x20;
                 let m2 = open(&c, Some(&ad), &n, &k);
                 ad[j] ^= 0x20;
-                assert!(m2.is_err());
+                assert_eq!(m2, Err(SodiumError::CiphertextFailedVerification));
             }
         }
     }
@@ -242,19 +251,19 @@ mod test_m {
                 m[j] ^= 0x20;
                 let r = open_detached(&mut m, Some(&ad), &t, &n, &k);
                 m[j] ^= 0x20;
-                assert!(r.is_err());
+                assert_eq!(r, Err(SodiumError::CiphertextFailedVerification))
             }
             for j in 0..ad.len() {
                 ad[j] ^= 0x20;
                 let r = open_detached(&mut m, Some(&ad), &t, &n, &k);
                 ad[j] ^= 0x20;
-                assert!(r.is_err());
+                assert_eq!(r, Err(SodiumError::CiphertextFailedVerification))
             }
             for j in 0..t.0.len() {
                 t.0[j] ^= 0x20;
                 let r = open_detached(&mut m, Some(&ad), &t, &n, &k);
                 t.0[j] ^= 0x20;
-                assert!(r.is_err());
+                assert_eq!(r, Err(SodiumError::CiphertextFailedVerification))
             }
         }
     }
