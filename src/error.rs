@@ -10,6 +10,18 @@ pub enum SodiumError {
     CiphertextFailedVerification,
     /// The runtime does not support AES.
     AesUnsupported,
+    /// The provided key was of an invalid length.
+    InvalidKeyLength,
+    /// The provided hash `out_len` was invalid.
+    InvalidHashOutLength,
+    /// Hashing failed.
+    HashingFailed,
+    /// Hash state initialization failed.
+    HashStateInitFailed,
+    /// Hash state update failed.
+    HashUpdateFailed,
+    /// Hash finalization failed.
+    HashFinalizeFailed,
 }
 
 pub type Result<T> = core::result::Result<T, SodiumError>;
@@ -22,7 +34,13 @@ impl core::fmt::Display for SodiumError {
                 "The ciphertext should include a prepended MAC, but it was too short."
             }
             CiphertextFailedVerification => "The ciphertext failed verification.",
-            AesUnsupported => "The runtime does not support AES",
+            AesUnsupported => "The runtime does not support AES.",
+            InvalidKeyLength => "The provided key was of an invalid length.",
+            InvalidHashOutLength => "The provided hash `out_len` was invalid.",
+            HashingFailed => "The hash operation failed.",
+            HashStateInitFailed => "Hash state initialization failed.",
+            HashUpdateFailed => "Hash state update failed.",
+            HashFinalizeFailed => "Hash finalization failed.",
         };
         write!(f, "{}", msg)
     }

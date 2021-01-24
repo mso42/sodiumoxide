@@ -14,6 +14,8 @@ use std::ptr;
 mod digest;
 pub use self::digest::Digest;
 
+use crate::error::{Result, SodiumError};
+
 /// Minimium of allowed bytes in a `Digest`
 pub const DIGEST_MIN: usize = crypto_generichash_BYTES_MIN as usize;
 
@@ -44,7 +46,9 @@ impl State {
     /// `key` is an optional parameter, which when given,
     /// a custom key can be used for the computation of the hash.
     /// The size of the key must be in the interval [`KEY_MIN`, `KEY_MAX`].
-    pub fn new(out_len: Option<usize>, key: Option<&[u8]>) -> Result<State, ()> {
+    ///
+    /// When state initialization fails, `new` returns [`SodiumError::StateInitFailed`].
+    pub fn new(out_len: Option<usize>, key: Option<&[u8]>) -> Result<State> {
         let out_len = unwrap_out_len(out_len)?;
         let (key_ptr, key_len) = unwrap_key(key)?;
 
@@ -58,26 +62,30 @@ impl State {
             let state = unsafe { state.assume_init() };
             Ok(State { out_len, state })
         } else {
-            Err(())
+            Err(SodiumError::HashStateInitFailed)
         }
     }
 
     /// `update` updates the `State` with `data`. `update` can be called multiple times in order
     /// to compute the hash from sequential chunks of the message.
-    pub fn update(&mut self, data: &[u8]) -> Result<(), ()> {
+    ///
+    /// When update fails, `update` returns [`SodiumError::HashUpdateFailed`].
+    pub fn update(&mut self, data: &[u8]) -> Result<()> {
         let rc = unsafe {
             crypto_generichash_update(&mut self.state, data.as_ptr(), data.len() as c_ulonglong)
         };
         if rc == 0 {
             Ok(())
         } else {
-            Err(())
+            Err(SodiumError::HashUpdateFailed)
         }
     }
 
     /// `finalize` finalizes the state and returns the digest value. `finalize` consumes the
     /// `State` so that it cannot be accidentally reused.
-    pub fn finalize(mut self) -> Result<Digest, ()> {
+    ///
+    /// When finalizing fails, `update` returns [`SodiumError::HashFinalizeFailed`]
+    pub fn finalize(mut self) -> Result<Digest> {
         let mut result = Digest::new(self.out_len);
         let rc = unsafe {
             crypto_generichash_final(&mut self.state, result.data.as_mut_ptr(), result.len)
@@ -85,7 +93,7 @@ impl State {
         if rc == 0 {
             Ok(result)
         } else {
-            Err(())
+            Err(SodiumError::HashFinalizeFailed)
         }
     }
 }
@@ -100,7 +108,7 @@ impl State {
 /// `key` is an optional parameter, which when given,
 /// a custom key can be used for the computation of the hash.
 /// The size of the key must be in the interval [`KEY_MIN`, `KEY_MAX`].
-pub fn hash(data: &[u8], out_len: Option<usize>, key: Option<&[u8]>) -> Result<Digest, ()> {
+pub fn hash(data: &[u8], out_len: Option<usize>, key: Option<&[u8]>) -> Result<Digest> {
     let out_len = unwrap_out_len(out_len)?;
     let (key_ptr, key_len) = unwrap_key(key)?;
 
@@ -118,14 +126,14 @@ pub fn hash(data: &[u8], out_len: Option<usize>, key: Option<&[u8]>) -> Result<D
     if rc == 0 {
         Ok(result)
     } else {
-        Err(())
+        Err(SodiumError::HashingFailed)
     }
 }
 
-fn unwrap_out_len(out_len: Option<usize>) -> Result<usize, ()> {
+fn unwrap_out_len(out_len: Option<usize>) -> Result<usize> {
     if let Some(out_len) = out_len {
         if !(DIGEST_MIN..=DIGEST_MAX).contains(&out_len) {
-            return Err(());
+            return Err(SodiumError::InvalidHashOutLength);
         }
         Ok(out_len)
     } else {
@@ -133,11 +141,11 @@ fn unwrap_out_len(out_len: Option<usize>) -> Result<usize, ()> {
     }
 }
 
-fn unwrap_key(key: Option<&[u8]>) -> Result<(*const u8, usize), ()> {
+fn unwrap_key(key: Option<&[u8]>) -> Result<(*const u8, usize)> {
     if let Some(key) = key {
         let len = key.len();
         if !(KEY_MIN..=KEY_MAX).contains(&len) {
-            return Err(());
+            return Err(SodiumError::InvalidKeyLength);
         }
         Ok((key.as_ptr(), len))
     } else {
